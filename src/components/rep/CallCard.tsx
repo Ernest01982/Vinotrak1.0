@@ -1,6 +1,6 @@
 import React from 'react';
 import { MapPin, Clock, CheckCircle, FileText, ShoppingCart, Navigation } from 'lucide-react';
-import { Call, Client } from '../../data/mockData';
+import { Call, Client } from '../../lib/supabase';
 
 interface CallCardProps {
   call: Call;
@@ -11,7 +11,7 @@ interface CallCardProps {
 
 const CallCard: React.FC<CallCardProps> = ({ call, client, onLogVisit, onPlaceOrder }) => {
   const isCompleted = call.status === 'completed';
-  const scheduledTime = new Date(call.scheduledDate).toLocaleTimeString('en-US', {
+  const scheduledTime = new Date(call.scheduled_date).toLocaleTimeString('en-US', {
     hour: 'numeric',
     minute: '2-digit',
     hour12: true
@@ -40,7 +40,7 @@ const CallCard: React.FC<CallCardProps> = ({ call, client, onLogVisit, onPlaceOr
               {isCompleted ? 'Completed' : 'Pending'}
             </span>
           </div>
-          <p className="text-gray-600 text-sm mb-1">{client.storeType}</p>
+          <p className="text-gray-600 text-sm mb-1">{client.store_type}</p>
           <div className="flex items-center space-x-4 text-sm text-gray-500">
             <div className="flex items-center space-x-1">
               <MapPin size={14} />
@@ -60,7 +60,7 @@ const CallCard: React.FC<CallCardProps> = ({ call, client, onLogVisit, onPlaceOr
       <div className="space-y-3">
         <div className="flex items-center space-x-2 text-sm text-gray-600">
           <span className="font-medium">Contact:</span>
-          <span>{client.contactPerson}</span>
+          <span>{client.contact_person}</span>
           <span>•</span>
           <span>{client.phone}</span>
         </div>
