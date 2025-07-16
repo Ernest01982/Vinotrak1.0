@@ -1,9 +1,11 @@
 import React, { useState, useRef } from 'react';
 import { Upload, Download, FileText, AlertCircle, CheckCircle, X } from 'lucide-react';
-import { Client } from '../data/mockData';
+import { Client } from '../lib/supabase';
+
+type NewClient = Omit<Client, 'id' | 'created_at' | 'updated_at'>;
 
 interface ClientBulkUploadProps {
-  onClientsUploaded: (clients: Omit<Client, 'id' | 'createdAt'>[]) => void;
+  onClientsUploaded: (clients: NewClient[]) => void;
   availableReps: { id: string; displayName: string }[];
 }
 
@@ -24,7 +26,7 @@ const ClientBulkUpload: React.FC<ClientBulkUploadProps> = ({ onClientsUploaded, 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const downloadTemplate = () => {
-    const headers = ['name', 'storeType', 'location', 'contactPerson', 'phone', 'email'];
+    const headers = ['name', 'store_type', 'location', 'contact_person', 'phone', 'email'];
     const sampleData = [
       'ABC Wine & Spirits,Liquor Store,"New York, NY",John Martinez,(555) 123-4567,john@abcwine.com',
       'TechStart Restaurant,Restaurant,"San Francisco, CA",Sarah Kim,(555) 234-5678,sarah@techstart.com',
@@ -87,104 +89,52 @@ const ClientBulkUpload: React.FC<ClientBulkUploadProps> = ({ onClientsUploaded, 
     setUploadResults(null);
     setShowResults(false);
 
+    if (availableReps.length === 0) {
+      alert("No sales reps found. Please add reps before uploading clients.");
+      setIsUploading(false);
+      return;
+    }
+
     try {
       const text = await file.text();
       const rows = parseCSV(text);
       
-      if (rows.length === 0) {
-        throw new Error('CSV file is empty');
+      if (rows.length < 2) {
+        throw new Error('CSV file must contain a header and at least one data row.');
       }
 
-      // Skip header row
       const dataRows = rows.slice(1);
-      const validClients: Omit<Client, 'id' | 'createdAt'>[] = [];
+      const validClients: NewClient[] = [];
       const errors: ValidationError[] = [];
 
       dataRows.forEach((row, index) => {
-        const rowNumber = index + 2; // +2 because we skipped header and arrays are 0-indexed
-        const [name, storeType, location, contactPerson, phone, email] = row;
+        const rowNumber = index + 2;
+        const [name, store_type, location, contact_person, phone, email] = row;
 
-        // Validation
-        if (!name?.trim()) {
-          errors.push({
-            row: rowNumber,
-            field: 'name',
-            message: 'Name is required',
-            data: row
-          });
-        }
+        if (!name?.trim()) errors.push({ row: rowNumber, field: 'name', message: 'Name is required', data: row });
+        if (!email?.trim()) errors.push({ row: rowNumber, field: 'email', message: 'Email is required', data: row });
+        else if (!validateEmail(email.trim())) errors.push({ row: rowNumber, field: 'email', message: 'Invalid email format', data: row });
+        if (!store_type?.trim()) errors.push({ row: rowNumber, field: 'store_type', message: 'Store type is required', data: row });
+        if (!location?.trim()) errors.push({ row: rowNumber, field: 'location', message: 'Location is required', data: row });
+        if (!contact_person?.trim()) errors.push({ row: rowNumber, field: 'contact_person', message: 'Contact person is required', data: row });
+        if (phone?.trim() && !validatePhone(phone.trim())) errors.push({ row: rowNumber, field: 'phone', message: 'Invalid phone format', data: row });
 
-        if (!email?.trim()) {
-          errors.push({
-            row: rowNumber,
-            field: 'email',
-            message: 'Email is required',
-            data: row
-          });
-        } else if (!validateEmail(email.trim())) {
-          errors.push({
-            row: rowNumber,
-            field: 'email',
-            message: 'Invalid email format',
-            data: row
-          });
-        }
-
-        if (!storeType?.trim()) {
-          errors.push({
-            row: rowNumber,
-            field: 'storeType',
-            message: 'Store type is required',
-            data: row
-          });
-        }
-
-        if (!location?.trim()) {
-          errors.push({
-            row: rowNumber,
-            field: 'location',
-            message: 'Location is required',
-            data: row
-          });
-        }
-
-        if (!contactPerson?.trim()) {
-          errors.push({
-            row: rowNumber,
-            field: 'contactPerson',
-            message: 'Contact person is required',
-            data: row
-          });
-        }
-
-        if (phone?.trim() && !validatePhone(phone.trim())) {
-          errors.push({
-            row: rowNumber,
-            field: 'phone',
-            message: 'Invalid phone format',
-            data: row
-          });
-        }
-
-        // If no errors for this row, add to valid clients
         const rowErrors = errors.filter(e => e.row === rowNumber);
         if (rowErrors.length === 0) {
-          // Assign to a random rep for demo purposes
           const randomRep = availableReps[Math.floor(Math.random() * availableReps.length)];
           
           validClients.push({
             name: name.trim(),
-            storeType: storeType.trim(),
+            store_type: store_type.trim(),
             location: location.trim(),
-            contactPerson: contactPerson.trim(),
-            phone: phone?.trim() || '',
+            contact_person: contact_person.trim(),
+            phone: phone?.trim() || null,
             email: email.trim(),
-            repId: randomRep.id
+            rep_id: randomRep.id
           });
         }
       });
 
-      // Simulate processing delay
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       setUploadResults({
@@ -236,24 +186,20 @@ const ClientBulkUpload: React.FC<ClientBulkUploadProps> = ({ onClientsUploaded, 
       </div>
 
       <div className="space-y-6">
-        {/* Instructions */}
         <div className="bg-gray-800 rounded-lg p-4 border border-gray-600">
           <h3 className="text-lg font-medium text-white mb-3">Upload Instructions</h3>
           <div className="space-y-2 text-gray-300">
-            <p>Upload a CSV file with the following format:</p>
-            <div className="bg-gray-900 rounded p-3 font-mono text-sm">
-              <div className="text-sky-400">name,storeType,location,contactPerson,phone,email</div>
+            <p>Upload a CSV file with the following headers:</p>
+            <div className="bg-gray-900 rounded p-3 font-mono text-sm overflow-x-auto">
+              <span className="text-sky-400">name,store_type,location,contact_person,phone,email</span>
             </div>
-            <ul className="list-disc list-inside space-y-1 text-sm">
-              <li><strong>name</strong> and <strong>email</strong> are required fields</li>
-              <li><strong>phone</strong> should be in format: (555) 123-4567</li>
-              <li>Use quotes around fields containing commas</li>
-              <li>Maximum file size: 5MB</li>
+            <ul className="list-disc list-inside space-y-1 text-sm pt-2">
+              <li>All fields are required except for <strong>phone</strong>.</li>
+              <li>Use quotes around fields containing commas (e.g., "New York, NY").</li>
             </ul>
           </div>
         </div>
 
-        {/* Template Download */}
         <div className="flex items-center justify-between">
           <div>
             <h4 className="text-white font-medium">Need a template?</h4>
@@ -264,11 +210,10 @@ const ClientBulkUpload: React.FC<ClientBulkUploadProps> = ({ onClientsUploaded, 
             className="bg-gray-600 hover:bg-gray-500 text-white px-4 py-2 rounded-lg font-medium transition-colors duration-200 flex items-center space-x-2"
           >
             <Download size={18} />
-            <span>Download Template</span>
+            <span>Download</span>
           </button>
         </div>
 
-        {/* File Upload */}
         <div className="border-2 border-dashed border-gray-600 rounded-lg p-8 text-center hover:border-gray-500 transition-colors duration-200">
           <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
           <div className="space-y-2">
@@ -278,7 +223,7 @@ const ClientBulkUpload: React.FC<ClientBulkUploadProps> = ({ onClientsUploaded, 
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv"
+            accept=".csv,text/csv"
             onChange={handleFileSelect}
             disabled={isUploading}
             className="hidden"
@@ -302,7 +247,6 @@ const ClientBulkUpload: React.FC<ClientBulkUploadProps> = ({ onClientsUploaded, 
           </button>
         </div>
 
-        {/* Results */}
         {showResults && uploadResults && (
           <div className="bg-gray-800 rounded-lg p-4 border border-gray-600">
             <div className="flex items-center justify-between mb-4">
@@ -320,7 +264,7 @@ const ClientBulkUpload: React.FC<ClientBulkUploadProps> = ({ onClientsUploaded, 
                 <div className="flex items-center space-x-3 p-3 bg-green-500/20 rounded-lg border border-green-500/30">
                   <CheckCircle className="w-5 h-5 text-green-400" />
                   <span className="text-green-400 font-medium">
-                    Successfully added {uploadResults.success} client{uploadResults.success !== 1 ? 's' : ''}
+                    Successfully validated {uploadResults.success} client{uploadResults.success !== 1 ? 's' : ''} for upload.
                   </span>
                 </div>
               )}
@@ -334,13 +278,11 @@ const ClientBulkUpload: React.FC<ClientBulkUploadProps> = ({ onClientsUploaded, 
                     </span>
                   </div>
                   
-                  <div className="max-h-40 overflow-y-auto space-y-1">
+                  <div className="max-h-40 overflow-y-auto space-y-1 bg-gray-900 rounded p-2">
                     {uploadResults.errors.map((error, index) => (
-                      <div key={index} className="text-sm text-gray-300 bg-gray-900 rounded p-2">
-                        <span className="text-red-400">Row {error.row}:</span> {error.message}
-                        {error.field !== 'file' && (
-                          <span className="text-gray-500"> (field: {error.field})</span>
-                        )}
+                      <div key={index} className="text-sm text-gray-300">
+                        <span className="font-semibold text-red-400">Row {error.row}:</span> {error.message}
+                        <span className="text-gray-500"> (field: {error.field})</span>
                       </div>
                     ))}
                   </div>
