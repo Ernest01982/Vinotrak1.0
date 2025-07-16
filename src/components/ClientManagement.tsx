@@ -2,59 +2,67 @@ import React, { useState, useEffect } from 'react';
 import { Search, Building2, Upload } from 'lucide-react';
 import ClientCard from './ClientCard';
 import ClientBulkUpload from './ClientBulkUpload';
-import { Client, mockClients, mockReps } from '../data/mockData';
+import { Client, Profile } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 const ClientManagement: React.FC = () => {
   const [clients, setClients] = useState<Client[]>([]);
+  const [reps, setReps] = useState<Profile[]>([]);
   const [filteredClients, setFilteredClients] = useState<Client[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [showBulkUpload, setShowBulkUpload] = useState(false);
 
-  // Simulate fetching data
-  useEffect(() => {
-    const fetchClients = async () => {
-      setLoading(true);
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setClients(mockClients);
-      setFilteredClients(mockClients);
-      setLoading(false);
-    };
+  const fetchClientsAndReps = async () => {
+    setLoading(true);
+    const { data: clientsData, error: clientsError } = await supabase.from('clients').select('*');
+    if (clientsError) console.error('Error fetching clients:', clientsError);
+    else {
+      setClients(clientsData || []);
+      setFilteredClients(clientsData || []);
+    }
 
-    fetchClients();
+    const { data: repsData, error: repsError } = await supabase.from('profiles').select('*').eq('role', 'rep');
+    if (repsError) console.error('Error fetching reps:', repsError);
+    else setReps(repsData || []);
+
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchClientsAndReps();
   }, []);
 
-  // Filter clients based on search term
   useEffect(() => {
     if (!searchTerm.trim()) {
       setFilteredClients(clients);
     } else {
+      const lowercasedTerm = searchTerm.toLowerCase();
       const filtered = clients.filter(client =>
-        client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        client.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        client.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        client.contactPerson.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        client.storeType.toLowerCase().includes(searchTerm.toLowerCase())
+        client.name.toLowerCase().includes(lowercasedTerm) ||
+        client.email.toLowerCase().includes(lowercasedTerm) ||
+        client.location.toLowerCase().includes(lowercasedTerm) ||
+        client.contact_person.toLowerCase().includes(lowercasedTerm) ||
+        client.store_type.toLowerCase().includes(lowercasedTerm)
       );
       setFilteredClients(filtered);
     }
   }, [searchTerm, clients]);
 
   const getRepName = (repId: string): string => {
-    const rep = mockReps.find(r => r.id === repId);
-    return rep ? rep.displayName : 'Unassigned';
+    const rep = reps.find(r => r.id === repId);
+    return rep ? rep.display_name : 'Unassigned';
   };
 
-  const handleClientsUploaded = (newClients: Omit<Client, 'id' | 'createdAt'>[]) => {
-    const clientsWithIds = newClients.map(client => ({
-      ...client,
-      id: `client-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      createdAt: new Date().toISOString()
-    }));
-
-    setClients(prev => [...prev, ...clientsWithIds]);
-    setShowBulkUpload(false);
+  const handleClientsUploaded = async (newClients: Omit<Client, 'id' | 'created_at' | 'updated_at'>[]) => {
+    const { error } = await supabase.from('clients').insert(newClients);
+    if (error) {
+      alert('Error uploading clients: ' + error.message);
+    } else {
+      setShowBulkUpload(false);
+      fetchClientsAndReps(); // Refresh the client list
+      alert('Clients uploaded successfully!');
+    }
   };
 
   if (loading) {
@@ -82,19 +90,17 @@ const ClientManagement: React.FC = () => {
           className="bg-sky-500 hover:bg-sky-600 text-white px-6 py-3 rounded-lg font-medium transition-colors duration-200 flex items-center space-x-2"
         >
           <Upload size={20} />
-          <span>{showBulkUpload ? 'Hide' : 'Bulk Upload'}</span>
+          <span>{showBulkUpload ? 'Hide Upload' : 'Bulk Upload'}</span>
         </button>
       </div>
 
-      {/* Bulk Upload Component */}
       {showBulkUpload && (
         <ClientBulkUpload
           onClientsUploaded={handleClientsUploaded}
-          availableReps={mockReps.map(rep => ({ id: rep.id, displayName: rep.displayName }))}
+          availableReps={reps.map(rep => ({ id: rep.id, displayName: rep.display_name }))}
         />
       )}
 
-      {/* Client List */}
       <div className="bg-gray-700 rounded-xl p-6 border border-gray-600">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div className="flex items-center space-x-3">
@@ -144,7 +150,7 @@ const ClientManagement: React.FC = () => {
               <ClientCard
                 key={client.id}
                 client={client}
-                repName={getRepName(client.repId)}
+                repName={getRepName(client.rep_id)}
               />
             ))}
           </div>
