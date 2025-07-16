@@ -33,7 +33,7 @@ const AppContent: React.FC = () => {
   }
 
   // Show rep dashboard if user is rep OR admin viewing as rep
-  if (user.profile.role === 'rep' || (user.profile.role === 'admin' && viewAs === 'rep')) {
+  if (user.profile?.role === 'rep' || (user.profile?.role === 'admin' && viewAs === 'rep')) {
     return <RepDashboard />;
   }
 
