@@ -168,6 +168,44 @@ export interface Database {
           updated_at?: string;
         };
       };
+      calls: {
+        Row: {
+          id: string;
+          rep_id: string;
+          client_id: string;
+          scheduled_date: string;
+          duration: number | null;
+          notes: string | null;
+          status: string;
+          outcomes: string[] | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          rep_id: string;
+          client_id: string;
+          scheduled_date: string;
+          duration?: number | null;
+          notes?: string | null;
+          status?: string;
+          outcomes?: string[] | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          rep_id?: string;
+          client_id?: string;
+          scheduled_date?: string;
+          duration?: number | null;
+          notes?: string | null;
+          status?: string;
+          outcomes?: string[] | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      }
     };
   };
 }
@@ -177,6 +215,7 @@ export type Order = Database['public']['Tables']['orders']['Row'];
 export type OrderItem = Database['public']['Tables']['order_items']['Row'];
 export type Client = Database['public']['Tables']['clients']['Row'];
 export type Profile = Database['public']['Tables']['profiles']['Row'];
+export type Call = Database['public']['Tables']['calls']['Row'];
 
 // Auth types
 export interface AuthUser {
