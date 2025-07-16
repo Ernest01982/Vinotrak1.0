@@ -2,23 +2,25 @@ import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, CheckCircle2 } from 'lucide-react';
 import CallCard from './CallCard';
 import CallLogModal from './CallLogModal';
-import { Call, mockCalls, mockClients, currentRep, Client as MockClient } from '../../data/mockData';
-import { Client } from '../../lib/supabase';
+import { Call, Client as SupabaseClient } from '../../lib/supabase';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface TodaysCallsProps {
-  onPlaceOrder: (client: Client) => void;
+  onPlaceOrder: (client: SupabaseClient) => void;
 }
 
 const TodaysCalls: React.FC<TodaysCallsProps> = ({ onPlaceOrder }) => {
+  const { user } = useAuth();
   const [calls, setCalls] = useState<Call[]>([]);
+  const [clients, setClients] = useState<SupabaseClient[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedCall, setSelectedCall] = useState<Call | null>(null);
-  const [selectedClient, setSelectedClient] = useState<MockClient | null>(null);
+  const [selectedClient, setSelectedClient] = useState<SupabaseClient | null>(null);
   const [previousVisit, setPreviousVisit] = useState<Call | null>(null);
 
-  // Mock current date - Friday, 20 June 2025
-  const currentDate = new Date('2025-06-20');
+  const currentDate = new Date();
   const formattedDate = currentDate.toLocaleDateString('en-US', {
     weekday: 'long',
     day: 'numeric',
@@ -29,75 +31,113 @@ const TodaysCalls: React.FC<TodaysCallsProps> = ({ onPlaceOrder }) => {
   useEffect(() => {
     const fetchTodaysCalls = async () => {
       setLoading(true);
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Filter calls for current rep and today's date
-      const todaysCalls = mockCalls.filter(call => {
-        const callDate = new Date(call.scheduledDate);
-        return call.repId === currentRep.id && 
-               callDate.toDateString() === currentDate.toDateString();
-      });
 
-      // Sort by scheduled time
-      todaysCalls.sort((a, b) => new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime());
-      
-      setCalls(todaysCalls);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      const { data: callsData, error: callsError } = await supabase
+        .from('calls')
+        .select('*')
+        .eq('rep_id', user!.id)
+        .gte('scheduled_date', today.toISOString())
+        .lt('scheduled_date', tomorrow.toISOString())
+        .order('scheduled_date', { ascending: true });
+
+      if (callsError) {
+        console.error('Error fetching calls:', callsError);
+      } else {
+        setCalls(callsData || []);
+      }
+
+      const { data: clientsData, error: clientsError } = await supabase
+        .from('clients')
+        .select('*');
+
+      if (clientsError) {
+        console.error('Error fetching clients:', clientsError);
+      } else {
+        setClients(clientsData || []);
+      }
+
       setLoading(false);
     };
 
-    fetchTodaysCalls();
-  }, []);
+    if (user) {
+      fetchTodaysCalls();
+    }
+  }, [user]);
 
-  const getClientById = (clientId: string): MockClient | undefined => {
-    return mockClients.find(client => client.id === clientId);
+  const getClientById = (clientId: string): SupabaseClient | undefined => {
+    return clients.find(client => client.id === clientId);
   };
 
-  const getPreviousVisit = (clientId: string): Call | null => {
-    // Find the most recent completed call for this client (excluding today's calls)
-    const clientCalls = mockCalls
-      .filter(call => 
-        call.clientId === clientId && 
-        call.repId === currentRep.id && 
-        call.status === 'completed' &&
-        new Date(call.scheduledDate).toDateString() !== currentDate.toDateString()
-      )
-      .sort((a, b) => new Date(b.scheduledDate).getTime() - new Date(a.scheduledDate).getTime());
-    
-    return clientCalls.length > 0 ? clientCalls[0] : null;
+  const getPreviousVisit = async (clientId: string): Promise<Call | null> => {
+    const { data, error } = await supabase
+      .from('calls')
+      .select('*')
+      .eq('client_id', clientId)
+      .eq('rep_id', user!.id)
+      .eq('status', 'completed')
+      .lt('scheduled_date', new Date().toISOString())
+      .order('scheduled_date', { ascending: false })
+      .limit(1);
+
+    if (error) {
+      console.error('Error fetching previous visit:', error);
+      return null;
+    }
+
+    return data && data.length > 0 ? data[0] : null;
   };
 
-  const handleLogVisit = (callId: string) => {
+  const handleLogVisit = async (callId: string) => {
     const call = calls.find(c => c.id === callId);
-    const client = call ? getClientById(call.clientId) : null;
+    const client = call ? getClientById(call.client_id) : null;
     
     if (call && client) {
       setSelectedCall(call);
       setSelectedClient(client);
-      setPreviousVisit(getPreviousVisit(call.clientId));
+      setPreviousVisit(await getPreviousVisit(call.client_id));
       setIsModalOpen(true);
     }
   };
 
-  const handleSaveLog = (logData: {
+  const handleSaveLog = async (logData: {
     notes: string;
     outcomes: string[];
     duration: number;
   }) => {
     if (selectedCall) {
-      setCalls(prevCalls => 
-        prevCalls.map(call => 
-          call.id === selectedCall.id 
-            ? { 
-                ...call, 
-                status: 'completed' as const,
-                notes: logData.notes,
-                outcomes: logData.outcomes,
-                duration: logData.duration
-              }
-            : call
-        )
-      );
+      const { error } = await supabase
+        .from('calls')
+        .update({
+          status: 'completed',
+          notes: logData.notes,
+          outcomes: logData.outcomes,
+          duration: logData.duration,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedCall.id);
+
+      if (error) {
+        console.error('Error updating call:', error);
+      } else {
+        setCalls(prevCalls => 
+          prevCalls.map(call => 
+            call.id === selectedCall.id 
+              ? { 
+                  ...call, 
+                  status: 'completed',
+                  notes: logData.notes,
+                  outcomes: logData.outcomes,
+                  duration: logData.duration
+                }
+              : call
+          )
+        );
+      }
     }
     
     setSelectedCall(null);
@@ -107,23 +147,10 @@ const TodaysCalls: React.FC<TodaysCallsProps> = ({ onPlaceOrder }) => {
 
   const handlePlaceOrderClick = (callId: string) => {
     const call = calls.find(c => c.id === callId);
-    const mockClient = call ? getClientById(call.clientId) : null;
+    const client = call ? getClientById(call.client_id) : null;
     
-    if (mockClient) {
-      // Convert mock client to Supabase client format
-      const supabaseClient: Client = {
-        id: mockClient.id,
-        name: mockClient.name,
-        store_type: mockClient.storeType,
-        location: mockClient.location,
-        contact_person: mockClient.contactPerson,
-        phone: mockClient.phone,
-        email: mockClient.email,
-        rep_id: mockClient.repId,
-        created_at: mockClient.createdAt,
-        updated_at: mockClient.createdAt
-      };
-      onPlaceOrder(supabaseClient);
+    if (client) {
+      onPlaceOrder(client);
     }
   };
 
@@ -202,7 +229,7 @@ const TodaysCalls: React.FC<TodaysCallsProps> = ({ onPlaceOrder }) => {
                 </h2>
                 <div className="space-y-4">
                   {pendingCalls.map((call) => {
-                    const client = getClientById(call.clientId);
+                    const client = getClientById(call.client_id);
                     if (!client) return null;
                     
                     return (
@@ -228,7 +255,7 @@ const TodaysCalls: React.FC<TodaysCallsProps> = ({ onPlaceOrder }) => {
                 </h2>
                 <div className="space-y-4">
                   {completedCalls.map((call) => {
-                    const client = getClientById(call.clientId);
+                    const client = getClientById(call.client_id);
                     if (!client) return null;
                     
                     return (
@@ -248,19 +275,20 @@ const TodaysCalls: React.FC<TodaysCallsProps> = ({ onPlaceOrder }) => {
         )}
 
         {/* Call Log Modal */}
-        <CallLogModal
-          isOpen={isModalOpen}
-          onClose={() => {
-            setIsModalOpen(false);
-            setSelectedCall(null);
-            setSelectedClient(null);
-            setPreviousVisit(null);
-          }}
-          onSave={handleSaveLog}
-          client={selectedClient!}
-          existingCall={selectedCall}
-          previousVisit={previousVisit}
-        />
+        {selectedClient && (
+          <CallLogModal
+            isOpen={isModalOpen}
+            onClose={() => {
+              setIsModalOpen(false);
+              setSelectedCall(null);
+              setSelectedClient(null);
+              setPreviousVisit(null);
+            }}
+            onSave={handleSaveLog}
+            client={selectedClient}
+            previousVisit={previousVisit}
+          />
+        )}
       </div>
     </div>
   );
