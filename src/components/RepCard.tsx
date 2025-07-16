@@ -1,13 +1,13 @@
 import React from 'react';
 import { Edit, Users, Phone, ShoppingCart } from 'lucide-react';
-import { Rep } from '../data/mockData';
+import { Profile } from '../lib/supabase';
 
 interface RepCardProps {
-  rep: Rep;
+  rep: Profile;
   clientCount: number;
   callCount: number;
   orderCount: number;
-  onEdit: (rep: Rep) => void;
+  onEdit: (rep: Profile) => void;
 }
 
 const RepCard: React.FC<RepCardProps> = ({ 
@@ -22,15 +22,15 @@ const RepCard: React.FC<RepCardProps> = ({
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center space-x-4">
           <img
-            src={rep.photoURL}
-            alt={rep.displayName}
-            className="w-16 h-16 rounded-full border-2 border-gray-600"
+            src={rep.photo_url || `https://placehold.co/150x150/4F46E5/FFFFFF?text=${rep.display_name.split(' ').map(n => n[0]).join('')}`}
+            alt={rep.display_name}
+            className="w-16 h-16 rounded-full border-2 border-gray-600 object-cover"
           />
           <div>
-            <h3 className="text-xl font-semibold text-white">{rep.displayName}</h3>
-            <p className="text-gray-400">{rep.email}</p>
+            <h3 className="text-xl font-semibold text-white">{rep.display_name}</h3>
+            <p className="text-gray-400">{rep.id}</p> {/* Assuming email is not in profiles, use ID or another identifier */}
             <p className="text-gray-500 text-sm">
-              Joined {new Date(rep.createdAt).toLocaleDateString()}
+              Joined {new Date(rep.created_at).toLocaleDateString()}
             </p>
           </div>
         </div>
