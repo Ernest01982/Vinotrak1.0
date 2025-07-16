@@ -2,93 +2,89 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Search, Users } from 'lucide-react';
 import RepCard from './RepCard';
 import RepFormModal from './RepFormModal';
-import { Rep, mockReps, mockClients, mockCalls, mockOrders } from '../data/mockData';
+import { Profile, Client, Call, Order } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
+import { useAuth } from '../contexts/AuthContext';
 
 const RepManagement: React.FC = () => {
-  const [reps, setReps] = useState<Rep[]>([]);
-  const [filteredReps, setFilteredReps] = useState<Rep[]>([]);
+  const { signUp } = useAuth();
+  const [reps, setReps] = useState<Profile[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [calls, setCalls] = useState<Call[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [filteredReps, setFilteredReps] = useState<Profile[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingRep, setEditingRep] = useState<Rep | null>(null);
+  const [editingRep, setEditingRep] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Simulate fetching data
-  useEffect(() => {
-    const fetchReps = async () => {
-      setLoading(true);
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 500));
-      setReps(mockReps);
-      setFilteredReps(mockReps);
-      setLoading(false);
-    };
+  const fetchData = async () => {
+    setLoading(true);
+    const { data: repsData, error: repsError } = await supabase.from('profiles').select('*').eq('role', 'rep');
+    const { data: clientsData, error: clientsError } = await supabase.from('clients').select('rep_id');
+    const { data: callsData, error: callsError } = await supabase.from('calls').select('rep_id');
+    const { data: ordersData, error: ordersError } = await supabase.from('orders').select('rep_id');
 
-    fetchReps();
+    if (repsError || clientsError || callsError || ordersError) {
+      console.error(repsError || clientsError || callsError || ordersError);
+    } else {
+      setReps(repsData || []);
+      setFilteredReps(repsData || []);
+      setClients(clientsData as Client[] || []);
+      setCalls(callsData as Call[] || []);
+      setOrders(ordersData as Order[] || []);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchData();
   }, []);
 
-  // Filter reps based on search term
   useEffect(() => {
     if (!searchTerm.trim()) {
       setFilteredReps(reps);
     } else {
+      const lowercasedTerm = searchTerm.toLowerCase();
       const filtered = reps.filter(rep =>
-        rep.displayName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        rep.email.toLowerCase().includes(searchTerm.toLowerCase())
+        rep.display_name.toLowerCase().includes(lowercasedTerm)
       );
       setFilteredReps(filtered);
     }
   }, [searchTerm, reps]);
 
-  const getRepStats = (repId: string) => {
-    const clientCount = mockClients.filter(client => client.repId === repId).length;
-    const callCount = mockCalls.filter(call => call.repId === repId).length;
-    const orderCount = mockOrders.filter(order => order.repId === repId).length;
-    
-    return { clientCount, callCount, orderCount };
-  };
+  const getRepStats = (repId: string) => ({
+    clientCount: clients.filter(c => c.rep_id === repId).length,
+    callCount: calls.filter(c => c.rep_id === repId).length,
+    orderCount: orders.filter(o => o.rep_id === repId).length,
+  });
 
   const handleAddRep = () => {
     setEditingRep(null);
     setIsModalOpen(true);
   };
 
-  const handleEditRep = (rep: Rep) => {
+  const handleEditRep = (rep: Profile) => {
     setEditingRep(rep);
     setIsModalOpen(true);
   };
 
-  const handleSaveRep = (repData: Partial<Rep> & { password?: string }) => {
+  const handleSaveRep = async (repData: { displayName: string; email: string; password?: string }) => {
     if (editingRep) {
-      // Update existing rep
-      const updatedReps = reps.map(rep =>
-        rep.id === editingRep.id
-          ? { ...rep, ...repData }
-          : rep
-      );
-      setReps(updatedReps);
+      const { error } = await supabase.from('profiles').update({ display_name: repData.displayName }).eq('id', editingRep.id);
+      if (error) alert('Error updating rep: ' + error.message);
     } else {
-      // Add new rep
-      const newRep: Rep = {
-        id: `rep-${Date.now()}`,
-        displayName: repData.displayName!,
-        email: repData.email!,
-        photoURL: `https://placehold.co/150x150/4F46E5/FFFFFF?text=${repData.displayName!.split(' ').map(n => n[0]).join('')}`,
-        role: 'rep',
-        createdAt: new Date().toISOString()
-      };
-      setReps(prev => [...prev, newRep]);
+      if (!repData.password) return;
+      const { error } = await signUp(repData.email, repData.password, repData.displayName);
+      if (error) alert('Error adding rep: ' + error.message);
     }
+    fetchData(); // Refresh data
   };
 
   if (loading) {
     return (
-      <div className="space-y-8">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-sky-400 mx-auto mb-4"></div>
-            <p className="text-gray-400">Loading representatives...</p>
-          </div>
-        </div>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-sky-400"></div>
       </div>
     );
   }
@@ -100,10 +96,7 @@ const RepManagement: React.FC = () => {
           <h1 className="text-3xl font-bold text-white mb-2">Rep Management</h1>
           <p className="text-gray-400">Manage your sales representatives and track their performance</p>
         </div>
-        <button
-          onClick={handleAddRep}
-          className="bg-sky-500 hover:bg-sky-600 text-white px-6 py-3 rounded-lg font-medium transition-colors duration-200 flex items-center space-x-2"
-        >
+        <button onClick={handleAddRep} className="bg-sky-500 hover:bg-sky-600 text-white px-6 py-3 rounded-lg font-medium flex items-center space-x-2">
           <Plus size={20} />
           <span>Add New Rep</span>
         </button>
@@ -113,11 +106,8 @@ const RepManagement: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div className="flex items-center space-x-3">
             <Users className="w-6 h-6 text-sky-400" />
-            <h2 className="text-xl font-semibold text-white">
-              All Representatives ({filteredReps.length})
-            </h2>
+            <h2 className="text-xl font-semibold text-white">All Representatives ({filteredReps.length})</h2>
           </div>
-          
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <input
@@ -125,7 +115,7 @@ const RepManagement: React.FC = () => {
               placeholder="Search reps..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 pr-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:border-transparent transition-colors duration-200 w-full sm:w-64"
+              className="pl-10 pr-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white w-full sm:w-64"
             />
           </div>
         </div>
@@ -133,24 +123,7 @@ const RepManagement: React.FC = () => {
         {filteredReps.length === 0 ? (
           <div className="text-center py-12">
             <Users className="w-16 h-16 text-gray-500 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-gray-400 mb-2">
-              {searchTerm ? 'No reps found' : 'No representatives yet'}
-            </h3>
-            <p className="text-gray-500 mb-6">
-              {searchTerm 
-                ? 'Try adjusting your search terms'
-                : 'Get started by adding your first sales representative'
-              }
-            </p>
-            {!searchTerm && (
-              <button
-                onClick={handleAddRep}
-                className="bg-sky-500 hover:bg-sky-600 text-white px-6 py-3 rounded-lg font-medium transition-colors duration-200 inline-flex items-center space-x-2"
-              >
-                <Plus size={20} />
-                <span>Add First Rep</span>
-              </button>
-            )}
+            <h3 className="text-xl font-semibold text-gray-400">No representatives found</h3>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
