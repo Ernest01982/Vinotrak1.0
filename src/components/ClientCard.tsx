@@ -1,6 +1,6 @@
 import React from 'react';
 import { Building2, MapPin, User, Phone, Mail } from 'lucide-react';
-import { Client } from '../data/mockData';
+import { Client } from '../lib/supabase';
 
 interface ClientCardProps {
   client: Client;
@@ -17,9 +17,9 @@ const ClientCard: React.FC<ClientCardProps> = ({ client, repName }) => {
           </div>
           <div>
             <h3 className="text-xl font-semibold text-white">{client.name}</h3>
-            <p className="text-gray-400">{client.storeType}</p>
+            <p className="text-gray-400">{client.store_type}</p>
             <p className="text-gray-500 text-sm">
-              Added {new Date(client.createdAt).toLocaleDateString()}
+              Added {new Date(client.created_at).toLocaleDateString()}
             </p>
           </div>
         </div>
@@ -33,7 +33,7 @@ const ClientCard: React.FC<ClientCardProps> = ({ client, repName }) => {
         
         <div className="flex items-center space-x-3">
           <User className="w-4 h-4 text-gray-400" />
-          <span className="text-gray-300">{client.contactPerson}</span>
+          <span className="text-gray-300">{client.contact_person}</span>
         </div>
         
         <div className="flex items-center space-x-3">
