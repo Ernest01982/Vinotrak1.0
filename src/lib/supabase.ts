@@ -20,6 +20,7 @@ export interface Database {
           display_name: string;
           created_at: string;
           updated_at: string;
+          photo_url: string | null; // Add this line
         };
         Insert: {
           id: string;
@@ -27,6 +28,7 @@ export interface Database {
           display_name: string;
           created_at?: string;
           updated_at?: string;
+          photo_url?: string | null; // Add this line
         };
         Update: {
           id?: string;
@@ -34,6 +36,7 @@ export interface Database {
           display_name?: string;
           created_at?: string;
           updated_at?: string;
+          photo_url?: string | null; // Add this line
         };
       };
       products: {
