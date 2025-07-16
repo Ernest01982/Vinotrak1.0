@@ -1,40 +1,59 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Building2, Phone, Mail, MapPin, FileText, ShoppingCart } from 'lucide-react';
 import CallLogModal from './CallLogModal';
-import { Call, mockClients, mockCalls, currentRep, Client } from '../../data/mockData';
-import { Client as SupabaseClient } from '../../lib/supabase';
+import { Call, Client as SupabaseClient } from '../../lib/supabase';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface MyClientsProps {
   onPlaceOrder: (client: SupabaseClient) => void;
 }
 
 const MyClients: React.FC<MyClientsProps> = ({ onPlaceOrder }) => {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [filteredClients, setFilteredClients] = useState<Client[]>([]);
+  const { user } = useAuth();
+  const [clients, setClients] = useState<SupabaseClient[]>([]);
+  const [filteredClients, setFilteredClients] = useState<SupabaseClient[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [selectedClient, setSelectedClient] = useState<SupabaseClient | null>(null);
   const [previousVisit, setPreviousVisit] = useState<Call | null>(null);
   const [allCalls, setAllCalls] = useState<Call[]>([]);
 
   useEffect(() => {
     const fetchMyClients = async () => {
       setLoading(true);
-      // Simulate API delay
-      await new Promise(resolve => setTimeout(resolve, 500));
+
+      const { data: clientsData, error: clientsError } = await supabase
+        .from('clients')
+        .select('*')
+        .eq('rep_id', user!.id);
       
-      // Filter clients for current rep
-      const myClients = mockClients.filter(client => client.repId === currentRep.id);
+      if (clientsError) {
+        console.error('Error fetching clients:', clientsError);
+      } else {
+        setClients(clientsData || []);
+        setFilteredClients(clientsData || []);
+      }
+
+      const { data: callsData, error: callsError } = await supabase
+        .from('calls')
+        .select('*')
+        .eq('rep_id', user!.id);
       
-      setClients(myClients);
-      setFilteredClients(myClients);
-      setAllCalls(mockCalls);
+      if (callsError) {
+        console.error('Error fetching calls:', callsError);
+      } else {
+        setAllCalls(callsData || []);
+      }
+
       setLoading(false);
     };
 
-    fetchMyClients();
-  }, []);
+    if (user) {
+      fetchMyClients();
+    }
+  }, [user]);
 
   // Filter clients based on search term
   useEffect(() => {
@@ -45,8 +64,8 @@ const MyClients: React.FC<MyClientsProps> = ({ onPlaceOrder }) => {
         client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         client.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
         client.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        client.contactPerson.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        client.storeType.toLowerCase().includes(searchTerm.toLowerCase())
+        client.contact_person.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        client.store_type.toLowerCase().includes(searchTerm.toLowerCase())
       );
       setFilteredClients(filtered);
     }
@@ -56,59 +75,49 @@ const MyClients: React.FC<MyClientsProps> = ({ onPlaceOrder }) => {
     // Find the most recent completed call for this client
     const clientCalls = allCalls
       .filter(call => 
-        call.clientId === clientId && 
-        call.repId === currentRep.id && 
+        call.client_id === clientId && 
+        call.rep_id === user!.id && 
         call.status === 'completed'
       )
-      .sort((a, b) => new Date(b.scheduledDate).getTime() - new Date(a.scheduledDate).getTime());
+      .sort((a, b) => new Date(b.scheduled_date).getTime() - new Date(a.scheduled_date).getTime());
     
     return clientCalls.length > 0 ? clientCalls[0] : null;
   };
 
-  const handleLogNewVisit = (client: Client) => {
+  const handleLogNewVisit = (client: SupabaseClient) => {
     setSelectedClient(client);
     setPreviousVisit(getPreviousVisit(client.id));
     setIsModalOpen(true);
   };
 
-  const handlePlaceOrderClick = (mockClient: Client) => {
-    // Convert mock client to Supabase client format
-    const supabaseClient: SupabaseClient = {
-      id: mockClient.id,
-      name: mockClient.name,
-      store_type: mockClient.storeType,
-      location: mockClient.location,
-      contact_person: mockClient.contactPerson,
-      phone: mockClient.phone,
-      email: mockClient.email,
-      rep_id: mockClient.repId,
-      created_at: mockClient.createdAt,
-      updated_at: mockClient.createdAt
-    };
-    onPlaceOrder(supabaseClient);
+  const handlePlaceOrderClick = (client: SupabaseClient) => {
+    onPlaceOrder(client);
   };
 
-  const handleSaveLog = (logData: {
+  const handleSaveLog = async (logData: {
     notes: string;
     outcomes: string[];
     duration: number;
   }) => {
     if (selectedClient) {
-      // Create a new call record for the ad-hoc visit
-      const newCall: Call = {
-        id: `call-adhoc-${Date.now()}`,
-        repId: currentRep.id,
-        clientId: selectedClient.id,
-        scheduledDate: new Date().toISOString(),
-        duration: logData.duration,
-        notes: logData.notes,
-        outcomes: logData.outcomes,
-        status: 'completed',
-        createdAt: new Date().toISOString()
-      };
+      const { data: newCall, error } = await supabase
+        .from('calls')
+        .insert({
+          rep_id: user!.id,
+          client_id: selectedClient.id,
+          scheduled_date: new Date().toISOString(),
+          duration: logData.duration,
+          notes: logData.notes,
+          outcomes: logData.outcomes,
+          status: 'completed',
+        })
+        .select();
 
-      // Update the calls list
-      setAllCalls(prev => [...prev, newCall]);
+      if (error) {
+        console.error('Error creating new call:', error);
+      } else if (newCall) {
+        setAllCalls(prev => [...prev, ...newCall]);
+      }
     }
     
     setSelectedClient(null);
@@ -188,7 +197,7 @@ const MyClients: React.FC<MyClientsProps> = ({ onPlaceOrder }) => {
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="text-lg font-semibold text-gray-900 mb-1">{client.name}</h3>
-                    <p className="text-gray-600 text-sm">{client.storeType}</p>
+                    <p className="text-gray-600 text-sm">{client.store_type}</p>
                   </div>
                 </div>
 
@@ -201,7 +210,7 @@ const MyClients: React.FC<MyClientsProps> = ({ onPlaceOrder }) => {
                   <div className="flex items-center space-x-3 text-sm">
                     <Phone className="w-4 h-4 text-gray-400 flex-shrink-0" />
                     <div className="flex flex-col">
-                      <span className="text-gray-700">{client.contactPerson}</span>
+                      <span className="text-gray-700">{client.contact_person}</span>
                       <a 
                         href={`tel:${client.phone}`}
                         className="text-sky-600 hover:text-sky-700 transition-colors duration-200"
@@ -225,7 +234,7 @@ const MyClients: React.FC<MyClientsProps> = ({ onPlaceOrder }) => {
                 <div className="pt-4 border-t border-gray-100">
                   <div className="flex items-center justify-between mb-3">
                     <p className="text-xs text-gray-500">
-                      Added {new Date(client.createdAt).toLocaleDateString()}
+                      Added {new Date(client.created_at).toLocaleDateString()}
                     </p>
                   </div>
                   
@@ -253,17 +262,19 @@ const MyClients: React.FC<MyClientsProps> = ({ onPlaceOrder }) => {
         )}
 
         {/* Call Log Modal */}
-        <CallLogModal
-          isOpen={isModalOpen}
-          onClose={() => {
-            setIsModalOpen(false);
-            setSelectedClient(null);
-            setPreviousVisit(null);
-          }}
-          onSave={handleSaveLog}
-          client={selectedClient!}
-          previousVisit={previousVisit}
-        />
+        {selectedClient && (
+          <CallLogModal
+            isOpen={isModalOpen}
+            onClose={() => {
+              setIsModalOpen(false);
+              setSelectedClient(null);
+              setPreviousVisit(null);
+            }}
+            onSave={handleSaveLog}
+            client={selectedClient}
+            previousVisit={previousVisit}
+          />
+        )}
       </div>
     </div>
   );
